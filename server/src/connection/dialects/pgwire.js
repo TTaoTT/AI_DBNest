@@ -40,7 +40,11 @@ function xor(a, b) {
 }
 function readCStr(buf, off) {
   const end = buf.indexOf(0, off);
-  return buf.toString('utf8', off, end < 0 ? buf.length : end);
+  const raw = buf.slice(off, end < 0 ? buf.length : end);
+  // PG 服务器(中文 Windows locale)错误消息常为 GBK/GB18030,UTF-8 解码出 U+FFFD → 智能回退
+  const s = raw.toString('utf8');
+  if (!s.includes('\uFFFD')) return s;
+  try { return new TextDecoder('gb18030').decode(raw); } catch (_) { return s; }
 }
 function bufInt16(n) { const b = Buffer.alloc(2); b.writeInt16BE(n, 0); return b; }
 function bufInt32(n) { const b = Buffer.alloc(4); b.writeInt32BE(n, 0); return b; }
