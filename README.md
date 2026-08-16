@@ -137,8 +137,7 @@ bash run-preview.sh   # 或 run-preview.bat → http://localhost:5180/
 ├── web/
 │   ├── preview/             # 前端单页(index.html + vendor/codemirror)
 │   └── src/lib/             # 前后端共用逻辑(db-logic / ui-interactions)
-├── 对标Navicat-进度矩阵.md   # 功能对标进度(v0.6.2, 141 项, 完成度 68%)
-├── 桌面Web分离打包-技术方案.md # 桌面/Web 分离架构方案与实施记录
+├── doc/                     # 分析文档(进度矩阵/技术方案/比对清单)
 ├── build-web-dist.cjs       # Web 版独立打包脚本
 ├── push-to-github.bat       # 一键推送 GitHub(本地执行)
 └── run-preview.sh / .bat    # 一键启动 Web 预览
@@ -150,9 +149,11 @@ bash run-preview.sh   # 或 run-preview.bat → http://localhost:5180/
 
 | 文档 | 内容 |
 |---|---|
-| [对标Navicat-进度矩阵.md](对标Navicat-进度矩阵.md) | 141 项功能对标进度、完成度、剩余 P1/P2 |
-| [桌面Web分离打包-技术方案.md](桌面Web分离打包-技术方案.md) | 零端口 IPC 架构改造方案与实施记录 |
-| [数据库管理应用-技术方案.md](数据库管理应用-技术方案.md) | 整体技术选型与设计 |
+| [doc/对标Navicat-进度矩阵.md](doc/对标Navicat-进度矩阵.md) | 141 项功能对标进度、完成度、剩余 P1/P2 |
+| [doc/桌面Web分离打包-技术方案.md](doc/桌面Web分离打包-技术方案.md) | 零端口 IPC 架构改造方案与实施记录 |
+| [doc/数据库管理应用-技术方案.md](doc/数据库管理应用-技术方案.md) | 整体技术选型与设计 |
+| [doc/Navicat比对清单-细化.md](doc/Navicat比对清单-细化.md) | 功能比对细化清单 |
+| [doc/Navicat操作-易用-UI交互-细化对比.md](doc/Navicat操作-易用-UI交互-细化对比.md) | 操作/易用/UI 交互对比 |
 
 ---
 
@@ -164,7 +165,7 @@ bash run-preview.sh   # 或 run-preview.bat → http://localhost:5180/
 - 撤销/重做暂限于数据网格编辑
 - 多语言(当前仅中文)
 
-详细进度见 [对标Navicat-进度矩阵.md](对标Navicat-进度矩阵.md)。
+详细进度见 [doc/对标Navicat-进度矩阵.md](doc/对标Navicat-进度矩阵.md)。
 
 ---
 
