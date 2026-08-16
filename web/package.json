@@ -1,0 +1,26 @@
+{
+  "name": "db-admin-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "对标 Navicat 的数据库管理前端（React + Vite + TanStack Virtual + Monaco）。与 server/ 共用同一 NestJS 后端。",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "node test/db-logic.test.cjs",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.6.0",
+    "@tanstack/react-virtual": "^3.10.8",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.6"
+  }
+}

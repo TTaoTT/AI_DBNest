@@ -1,0 +1,38 @@
+# DBNest · 库巢 — Git 忽略清单
+
+# 本地记忆与工具数据（含会话记录，不提交）
+.workbuddy/
+
+# 依赖
+node_modules/
+
+# 打包产物 / 安装程序
+electron-app/
+installer-out/
+dist/
+build/
+*.exe
+*.7z
+*.zip
+
+# 本地配置（含密码/端口）
+db-admin.json
+*.local.json
+
+# 数据库文件
+*.db
+*.sqlite
+*.sqlite3
+
+# 日志与临时
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+tmp-*
+
+# 一键推送辅助脚本(本地执行,不提交)
+push-to-github.bat
+
+# Web 版部署产物(由 build-web-dist.cjs 生成到沙盒外目录,根目录残留的 deploy 不入库)
+deploy/
