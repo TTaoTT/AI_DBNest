@@ -439,7 +439,6 @@ li.CodeMirror-hint-active{background:var(--sel);color:var(--text);}
   <div class="topbar">
     <div class="logo"><span class="dot"></span> DBNest <span style="opacity:.7;font-weight:400;">库巢 · 数据库管理工具</span></div>
     <div class="sp"></div>
-    <button class="tbtn" id="tSettings" title="客户端设置">⚙ 设置</button>
     <button class="tbtn" id="tTheme">🌓 主题</button>
   </div>
   <div class="loadbar" id="loadbar"></div>
@@ -4274,7 +4273,7 @@ $('btnPii').classList.toggle('primary', !piiMasked());
 $('btnRefreshTree').onclick = () => { const c = getConn(state.activeConnId); if (c) loadMeta(c).then(() => { renderTree(); renderObjNav(); }); };
 $('treeFilter').oninput = (e) => { state.treeFilter = e.target.value; applyTreeFilter(); };
 $('tTheme').onclick = () => { state.theme = state.theme === 'light' ? 'dark' : 'light'; document.documentElement.dataset.theme = state.theme; };
-$('tSettings').onclick = () => openSettingsModal();
+// 设置按钮已移除(设置面板逻辑保留,将来 Web 服务功能恢复时复用)
 
 // ---------- 设置弹窗：Web 服务开关 / 端口 / 监听地址 ----------
 async function openSettingsModal() {
