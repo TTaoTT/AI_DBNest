@@ -1162,6 +1162,20 @@ async function connectSaved(i) {
     flash('连接失败：' + e.message, true);
   }
 }
+// 已保存连接唯一键(host/port/db/type + 会话 id)——JSON.parse 会产生新对象,不能用引用比较
+function savedConnKey(c) {
+  return JSON.stringify([c.type || '', c.host || '', String(c.port || ''), c.database || '', c.connId || '', c._connId || '']);
+}
+// 统一删除已保存连接:localStorage + 内存占位快照(state._savedConns)双源同步
+// 已连接时保持会话不断开;删除后刷新树(占位消失),刷新页面后该配置不再恢复/不再占位
+function deleteSavedConn(cfg) {
+  const k = savedConnKey(cfg);
+  const list = loadConns().filter((x) => savedConnKey(x) !== k);
+  saveConns(list);
+  state._savedConns = (state._savedConns || []).filter((x) => savedConnKey(x) !== k);
+  try { renderSavedConns(); } catch (_) {}
+  renderTree();
+}
 // 未连接节点右键菜单（Navicat：连接/编辑/删除）
 function openOfflineCtx(e, i) {
   const saved = state._savedConns || [];
@@ -1170,7 +1184,7 @@ function openOfflineCtx(e, i) {
     { label: '连接', icon: '🔌', primary: true, action: () => connectSaved(i) },
     { label: '编辑连接', icon: '✏️', action: () => openConnModal(cfg) },
     { sep: true },
-    { label: '删除已保存连接', icon: '🗑️', danger: true, action: () => { if (!confirm('确认删除已保存连接「' + (cfg.database || cfg.host) + '」？')) return; const list = loadConns().filter((x) => x !== cfg); saveConns(list); state._savedConns = list; renderTree(); } },
+    { label: '删除已保存连接', icon: '🗑️', danger: true, action: () => { if (!confirm('确认删除已保存连接「' + (cfg.database || cfg.host) + '」？')) return; deleteSavedConn(cfg); } },
   ]);
 }
 function renderConnInfo() {
@@ -4178,7 +4192,7 @@ function renderSavedConns() {
       '<button class="btn danger" data-act="del" style="padding:2px 10px;">' + ICON.trash + '删除</button>';
     row.querySelector('[data-act="conn"]').onclick = async (e) => { e.stopPropagation(); try { await doConnect(c, false); $('connModal').classList.remove('show'); flash('已重连 ' + (c.database || c.host), false); } catch (er) { $('cErr').textContent = '重连失败：' + er.message; } };
     row.querySelector('[data-act="edit"]').onclick = (e) => { e.stopPropagation(); fillConnForm(c); };
-    row.querySelector('[data-act="del"]').onclick = (e) => { e.stopPropagation(); if (!confirm('确认删除已保存连接「' + (c.database || c.host) + '」？')) return; const list2 = loadConns().filter((x, j) => j !== i); saveConns(list2); renderSavedConns(); };
+    row.querySelector('[data-act="del"]').onclick = (e) => { e.stopPropagation(); if (!confirm('确认删除已保存连接「' + (c.database || c.host) + '」？')) return; deleteSavedConn(c); };
     row.ondblclick = () => fillConnForm(c);
     box.appendChild(row);
   });
