@@ -224,7 +224,7 @@ button{font-family:inherit;}
 .sub .tools input{padding:4px 8px;border:1px solid var(--border-2);border-radius:6px;font-size:12px;width:70px;background:var(--panel-2);color:var(--text);}
 
 .grid-wrap{flex:1;min-height:0;display:flex;flex-direction:column;}
-.grid-scroll{flex:1;overflow:auto;position:relative;background:var(--panel);}
+.grid-scroll{flex:1;min-height:0;height:0;overflow:auto;position:relative;background:var(--panel);}
 /* 底部操作栏：数据网格下方，固定高度，操作始终可见 */
 .grid-toolbar{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 10px;border-top:1px solid var(--border);background:var(--bar);}
 .grid-toolbar .gt-left,.grid-toolbar .gt-right{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
@@ -260,6 +260,9 @@ thead th.nosort{cursor:default;}
 thead th .resizer{position:absolute;right:0;top:0;bottom:0;width:6px;cursor:col-resize;z-index:4;}
 thead th .resizer:hover{background:var(--accent);opacity:.5;}
 thead th.resizing{user-select:none;}
+/* 行号表头(#)：横向滚动时钉住左侧、左上角置于最高层级 */
+.grid-scroll thead{position:sticky;top:0;z-index:3;}
+.grid-scroll thead th.rownum{position:sticky;left:0;z-index:5;}
 tbody td .cell-hl{background:var(--warn);color:#fff;border-radius:2px;padding:0 2px;}
 tbody td.gf-hl{outline:2px solid var(--warn);outline-offset:-1px;background:var(--warn-soft,var(--panel-2));}
 .grid-findbar{display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--bar);border-bottom:1px solid var(--border);flex:none;}
@@ -443,6 +446,8 @@ li.CodeMirror-hint-active{background:var(--sel);color:var(--text);}
 .field textarea{font:12px/1.5 var(--mono);min-height:120px;resize:vertical;}
 .field .err{color:var(--danger);font-size:11px;margin-top:3px;}
 .field .note{color:var(--muted);font-size:11px;margin-top:3px;}
+.sec-title{font-size:12px;font-weight:600;color:var(--accent-d);margin:14px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--border);}
+.sec-title:first-of-type{margin-top:2px;}
 .modal .actions{display:flex;justify-content:flex-end;gap:9px;margin-top:8px;}
 .empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;flex-direction:column;gap:8px;}
 </style>
@@ -451,6 +456,8 @@ li.CodeMirror-hint-active{background:var(--sel);color:var(--text);}
   <div class="topbar">
     <div class="logo"><span class="dot"></span> DBNest <span style="opacity:.7;font-weight:400;">库巢 · 数据库管理工具</span></div>
     <div class="sp"></div>
+    <button class="tbtn" id="tUpdate" title="检查并应用增量补丁更新">🔄 检查更新</button>
+    <button class="tbtn" id="tSettings" title="打开客户端设置（脱敏 / 主题 / 每页行数等）">⚙ 设置</button>
     <button class="tbtn" id="tTheme">🌓 主题</button>
   </div>
   <div class="loadbar" id="loadbar"></div>
@@ -479,6 +486,23 @@ li.CodeMirror-hint-active{background:var(--sel);color:var(--text);}
 
   <div class="ctx" id="ctxmenu" style="display:none;"></div>
 
+  <div class="modal" id="updateModal">
+    <div class="card" style="width:520px;">
+      <h3>🔄 增量补丁更新</h3>
+      <div class="note" style="margin-top:-4px;">只下载变化的业务文件（约几 MB），无需重装安装包、无需管理员权限。</div>
+      <div class="field"><label>补丁源地址（远程 manifest 目录 URL）</label><input id="uPatchUrl" placeholder="https://example.com/dbnest-patch/" /></div>
+      <div id="uInfo" class="note" style="min-height:18px;"></div>
+      <div id="uChanges" style="max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:8px 10px;background:var(--panel-2);display:none;"></div>
+      <div class="err" id="uErr"></div>
+      <div class="actions">
+        <button class="btn" id="uClose">关闭</button>
+        <button class="btn" id="uCheck">检查更新</button>
+        <button class="btn primary" id="uApply" style="display:none;">应用更新并重启</button>
+      </div>
+    </div>
+  </div>
+
+
   <div class="modal" id="connModal">
     <div class="card" style="width:560px;">
       <h3>新建连接</h3>
@@ -496,18 +520,33 @@ li.CodeMirror-hint-active{background:var(--sel);color:var(--text);}
   </div>
 
   <div class="modal" id="settingsModal">
-    <div class="card" style="width:520px;">
+    <div class="card" style="width:560px;max-height:84vh;overflow:auto;">
       <h3>⚙ 客户端设置</h3>
-      <div class="field" style="display:flex;align-items:center;gap:8px;">
-        <label style="margin:0;display:flex;align-items:center;gap:7px;"><input type="checkbox" id="sWebEnabled" style="width:auto;display:inline;margin:0;" />启用 Web 访问服务</label>
-        <span class="note" style="margin:0;">开启后可通过浏览器 / 局域网访问本客户端（功能与桌面一致）</span>
+      <div class="sec-title">常规</div>
+      <div class="field" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+        <label style="margin:0;">敏感数据默认脱敏</label>
+        <label style="margin:0;display:flex;align-items:center;gap:7px;"><input type="checkbox" id="sPii" style="width:auto;display:inline;margin:0;" />开启后敏感列（手机/证件/邮箱/姓名/卡号）默认显示掩码</label>
       </div>
-      <div id="sWebFields">
-        <div class="field"><label>监听地址</label><input id="sHost" placeholder="0.0.0.0（所有网卡） / 127.0.0.1（仅本机）" /></div>
-        <div class="field"><label>端口</label><input id="sPort" placeholder="5180" /></div>
+      <div class="field" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+        <label style="margin:0;">默认主题</label>
+        <select id="sTheme" style="width:auto;"><option value="light">浅色</option><option value="dark">深色</option></select>
       </div>
-      <div class="note" id="sWebUrl" style="margin-top:2px;"></div>
-      <div class="err" id="sErr"></div>
+      <div class="field" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+        <label style="margin:0;">每页加载行数</label>
+        <input id="sPageSize" type="number" min="10" max="5000" step="10" style="width:120px;" />
+      </div>
+      <div class="field" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+        <label style="margin:0;">查询结果最大行数</label>
+        <input id="sMaxRows" type="number" min="10" max="100000" step="100" style="width:120px;" />
+      </div>
+      <div class="field" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+        <label style="margin:0;display:flex;align-items:center;gap:7px;"><input type="checkbox" id="sConfirmDel" style="width:auto;display:inline;margin:0;" />删除前确认</label>
+        <span class="note" style="margin:0;">关闭后删除行 / 表不再弹确认框</span>
+      </div>
+      <div class="field" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+        <label style="margin:0;display:flex;align-items:center;gap:7px;"><input type="checkbox" id="sAutoCommit" style="width:auto;display:inline;margin:0;" />自动提交事务</label>
+        <span class="note" style="margin:0;">关闭后需手动提交（后续版本强化）</span>
+      </div>
       <div class="actions">
         <button class="btn" id="sCancel">取消</button>
         <button class="btn primary" id="sSave">保存并生效</button>
@@ -701,6 +740,26 @@ const ICON = {
   seq: SVG('<path d="M8 2.5 L13 6 L13 12 L8 15.5 L3 12 L3 6 Z"/><path d="M8 6 L8 10 M5.5 7.5 L10.5 9.5 M10.5 7.5 L5.5 9.5"/>'),
 };
 const ICON_FOR = { mysql: 'db', mariadb: 'db', tidb: 'db', oceanbase: 'db', postgresql: 'db', openGauss: 'db', sqlite: 'table', oracle: 'db', mssql: 'db', mongo: 'schema' };
+/* ===== 常规设置（本地 localStorage 记忆，参考 Navicat 常规设置） ===== */
+const WB_SETTINGS_KEY = 'wb_settings';
+const WB_SETTINGS_DEFAULT = {
+  piiMaskDefault: false, // 敏感数据默认脱敏：false=默认显示原始值（不脱敏）
+  theme: 'light',        // 默认主题：light / dark
+  pageSize: 200,         // 数据网格每页加载行数
+  maxRows: 1000,         // 查询结果最大显示行数（超出的仅前端截断显示，不报错）
+  confirmDelete: true,   // 删除前确认弹窗
+  autoCommit: true,      // 自动提交事务（逐条执行即提交）
+};
+function loadSettings() {
+  try { return Object.assign({}, WB_SETTINGS_DEFAULT, JSON.parse(localStorage.getItem(WB_SETTINGS_KEY) || '{}')); }
+  catch (_) { return Object.assign({}, WB_SETTINGS_DEFAULT); }
+}
+function saveSettings(s) { localStorage.setItem(WB_SETTINGS_KEY, JSON.stringify(s)); }
+function applySettings() {
+  const s = loadSettings();
+  state.theme = s.theme === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = state.theme;
+}
 /* ===== PII 脱敏：按列名识别敏感字段，网格/结果集显示掩码（title 悬停可看完整值，本地仅展示） ===== */
 const PII_PATTERNS = [
   { re: /phone|mobile|tel|手机|电话/i, label: '手机', mask: (v) => String(v).replace(/^(.{3}).*(.{2})$/, '$1****$2') },
@@ -713,13 +772,15 @@ function piiInfo(colName) {
   const hit = PII_PATTERNS.find((p) => p.re.test(colName || ''));
   return hit || null;
 }
-// PII 脱敏开关（localStorage 记忆）：true=脱敏显示(默认) / false=显示原始值
-function piiMasked() { return localStorage.getItem('wb_pii_mask') !== '0'; }
+// PII 脱敏开关（本地设置记忆，默认不脱敏）：返回 true=脱敏显示 / false=显示原始值
+// 工具栏「脱敏」按钮的选中(高亮)态即代表脱敏已开启
+function piiMasked() { return !!loadSettings().piiMaskDefault; }
 function togglePiiMask() {
-  const next = !piiMasked();
-  localStorage.setItem('wb_pii_mask', next ? '1' : '0');
+  const s = loadSettings();
+  s.piiMaskDefault = !s.piiMaskDefault;
+  saveSettings(s);
   refreshAllDataTabs();
-  return next;
+  return s.piiMaskDefault;
 }
 function refreshAllDataTabs() {
   state.tabs.filter((t) => t.kind === 'data').forEach((t) => {
@@ -993,6 +1054,94 @@ async function checkUpdate() {
 setInterval(checkUpdate, 30000);
 setTimeout(checkUpdate, 1500);
 renderBuildInfo();
+
+// ── 增量补丁更新（检查更新 / 应用） ──
+let _patchState = null;
+function esc2(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function fmtSize(b) { return b >= 1048576 ? (b / 1048576).toFixed(2) + ' MB' : b >= 1024 ? (b / 1024).toFixed(1) + ' KB' : b + ' B'; }
+async function patchCheck() {
+  const url = document.getElementById('uPatchUrl').value.trim();
+  const info = document.getElementById('uInfo');
+  const errEl = document.getElementById('uErr');
+  const changesEl = document.getElementById('uChanges');
+  const applyBtn = document.getElementById('uApply');
+  info.textContent = '正在检查…'; errEl.textContent = ''; changesEl.style.display = 'none'; applyBtn.style.display = 'none';
+  try {
+    let res;
+    if (window.dbAdminBridge && window.dbAdminBridge.patch) {
+      res = await window.dbAdminBridge.patch('check', { patchUrl: url });
+    } else {
+      // Web 模式：直接访问补丁源（跨域需补丁源允许 CORS）
+      const base = url.replace(/\/$/, '');
+      const local = await api('/api/build', {}).catch(() => ({}));
+      let remote = null, rerr = null;
+      try { remote = await (await fetch(base + '/manifest.json')).json(); } catch (e) { rerr = String(e.message || e); }
+      res = { data: { localVersion: (local && local.build) || '?', remoteVersion: remote ? remote.version : null, patchUrl: url, needUpdate: !!(remote), changes: [], remoteError: rerr } };
+    }
+    const d = res.data || {};
+    _patchState = d;
+    if (d.remoteError) { errEl.textContent = '拉取补丁清单失败：' + d.remoteError; info.textContent = ''; return; }
+    if (!d.remoteVersion) { info.textContent = '未配置或无法访问补丁源，请填写正确的 manifest 目录 URL。'; return; }
+    const ch = d.changes || [];
+    const addN = ch.filter((x) => x.kind === 'add').length;
+    const upN = ch.filter((x) => x.kind === 'update').length;
+    const rmN = ch.filter((x) => x.kind === 'remove').length;
+    const totalBytes = ch.reduce((s, x) => s + (x.size || 0), 0);
+    if (d.needUpdate) {
+      info.innerHTML = '发现新版本 <b>' + esc2(d.remoteVersion) + '</b>（当前 ' + esc2(d.localVersion || '?') + '）· 变更 ' + (addN + upN + rmN) + ' 个文件 · 约 ' + fmtSize(totalBytes);
+      changesEl.style.display = 'block';
+      changesEl.innerHTML = ch.map((x) => '<div style="display:flex;justify-content:space-between;gap:8px;padding:2px 0;font-size:12px;"><span style="color:var(--muted);">' + (x.kind === 'add' ? '➕' : x.kind === 'remove' ? '➖' : '✏️') + ' ' + esc2(x.path) + '</span><span style="color:var(--faint);white-space:nowrap;">' + fmtSize(x.size) + '</span></div>').join('');
+      applyBtn.style.display = 'inline-flex';
+    } else {
+      info.innerHTML = '已是最新版本 <b>' + esc2(d.remoteVersion) + '</b> ✓';
+    }
+  } catch (e) {
+    errEl.textContent = '检查失败：' + (e.message || e);
+  }
+}
+async function patchApply() {
+  if (!_patchState) return;
+  const url = document.getElementById('uPatchUrl').value.trim();
+  const info = document.getElementById('uInfo');
+  const errEl = document.getElementById('uErr');
+  const applyBtn = document.getElementById('uApply');
+  applyBtn.disabled = true;
+  try {
+    let res;
+    if (window.dbAdminBridge && window.dbAdminBridge.patch) {
+      info.textContent = '正在下载并应用补丁…（仅变化文件）';
+      res = await window.dbAdminBridge.patch('apply', { patchUrl: url });
+    } else {
+      // Web 模式：浏览器无法写本地文件，提示用桌面端或手动部署
+      errEl.textContent = 'Web 模式不支持自动落盘补丁，请在桌面客户端中更新，或手动替换 server/web 目录。';
+      applyBtn.disabled = false;
+      return;
+    }
+    const d = res.data || {};
+    if (res.status !== 200 || !d.ok) { errEl.textContent = '更新失败：' + (d.error || '未知错误'); applyBtn.disabled = false; return; }
+    info.innerHTML = '补丁已应用（v' + esc2(d.version) + '，' + d.files + ' 个文件，' + fmtSize(d.bytes) + '）。即将重启以生效…';
+    setTimeout(() => {
+      if (window.dbAdminBridge && window.dbAdminBridge.relaunch) window.dbAdminBridge.relaunch();
+      else if (window.dbAdminBridge && window.dbAdminBridge.patch) window.dbAdminBridge.patch('restart', {});
+      else location.reload(true);
+    }, 1200);
+  } catch (e) {
+    errEl.textContent = '应用失败：' + (e.message || e);
+    applyBtn.disabled = false;
+  }
+}
+function initUpdateUI() {
+  const openBtn = document.getElementById('tUpdate');
+  const modal = document.getElementById('updateModal');
+  const urlInput = document.getElementById('uPatchUrl');
+  if (openBtn) openBtn.onclick = () => { modal.style.display = 'flex'; if (!urlInput.value) urlInput.value = (window.__PATCH_URL__ || ''); };
+  document.getElementById('uClose').onclick = () => { modal.style.display = 'none'; };
+  document.getElementById('uCheck').onclick = patchCheck;
+  document.getElementById('uApply').onclick = patchApply;
+  // 点击遮罩关闭
+  modal.onclick = (e) => { if (e.target === modal) modal.style.display = 'none'; };
+}
+
 let flash = (msg, isErr) => { setStatus('<span class="' + (isErr ? 'err' : 'ok') + '">' + esc(msg) + '</span>'); };
 // 轻量 SQL 格式化：大写关键字 + 主子句换行（保留占位符 $1 $2 等）
 function formatSqlLite(sql) {
@@ -1849,7 +1998,7 @@ async function openTable(conn, schema, table, isView, dbName) {
   const full = conn.type === 'sqlite' ? table : (schema + '.' + table);
   const existing = state.tabs.find((t) => t.kind === 'data' && t.queryConnId === queryConnId && t.full === full);
   if (existing) { state.activeTabId = existing.id; renderTabbar(); renderTabBody(); return; }
-  const t = newTab({ kind: 'data', title: (isView ? '视图 ' : '表 ') + full, connId: conn.connId, queryConnId, schema, table, db: useDb ? dbName : conn.database, full, isView: !!isView, sub: 'data', columns: [], rows: [], viewRows: [], filters: [], sort: null, limit: 1000, offset: 0, page: 1, pkCols: [], pending: null, selRow: -1, total: null, allLoaded: false, colOrder: null, fks: [] });
+  const t = newTab({ kind: 'data', title: (isView ? '视图 ' : '表 ') + full, connId: conn.connId, queryConnId, schema, table, db: useDb ? dbName : conn.database, full, isView: !!isView, sub: 'data', columns: [], rows: [], viewRows: [], filters: [], sort: null, limit: loadSettings().pageSize, offset: 0, page: 1, pkCols: [], pending: null, selRow: -1, total: null, allLoaded: false, colOrder: null, fks: [] });
   await loadTableData(t);
 }
 async function loadTableData(t) {
@@ -1929,8 +2078,7 @@ function renderDataTab(t, body) {
     '<button class="btn" id="gfPrev">▲</button><button class="btn" id="gfNext">▼</button>' +
     '<span class="hint" id="gfInfo"></span><button class="btn" id="gfClose">✕</button>';
   ws.appendChild(fb);
-  const gw = document.createElement('div'); gw.className = 'grid-wrap';
-  const sc = document.createElement('div'); sc.className = 'grid-scroll'; gw.appendChild(sc); ws.appendChild(gw);
+  const sc = document.createElement('div'); sc.className = 'grid-scroll'; ws.appendChild(sc);
   // ── 底部操作栏（Navicat 式：数据操作在网格下方）──
   const bottom = document.createElement('div'); bottom.className = 'grid-toolbar';
   bottom.innerHTML =
@@ -2518,7 +2666,7 @@ async function commitAllDirty(t) {
   try {
     for (let i = 0; i < items.length; i++) {
       const d = items[i];
-      const r = await api('/api/execute', { connId: d.qc || qc, sql: d.sql, params: d.params });
+      const r = await api('/api/execute', { connId: d.qc || qc, sql: d.sql, params: d.params, autoCommit: loadSettings().autoCommit });
       if (d.useCtid && r.rows && r.rows[0] && r.rows[0].ctid && d.row) d.row.ctid = r.rows[0].ctid;
     }
     t._dirty = [];
@@ -2641,10 +2789,10 @@ async function deleteRow(t, row) {
   const qc = t.queryConnId || t.connId;
   const w = rowWhere(t, row, 1);
   if (!w.conds.length) { flash('该表无主键且无行定位列，无法安全 DELETE', true); return; }
-  if (!confirm('确认删除选中行？此操作不可撤销。')) return;
+  if (loadSettings().confirmDelete && !confirm('确认删除选中行？此操作不可撤销。')) return;
   try {
     const sql = 'DELETE FROM ' + t.full + ' WHERE ' + w.conds.join(' AND ');
-    await api('/api/execute', { connId: qc, sql, params: w.params });
+    await api('/api/execute', { connId: qc, sql, params: w.params, autoCommit: loadSettings().autoCommit });
     await loadTableData(t); flash('已删除行', false);
   } catch (e) { flash('删除失败：' + e.message, true); }
 }
@@ -2652,7 +2800,7 @@ async function deleteRow(t, row) {
 async function deleteRows(t, idxList) {
   const conn = getConn(t.connId);
   const qc = t.queryConnId || t.connId;
-  if (!confirm('确认删除选中的 ' + idxList.length + ' 行？此操作不可撤销。')) return;
+  if (loadSettings().confirmDelete && !confirm('确认删除选中的 ' + idxList.length + ' 行？此操作不可撤销。')) return;
   try {
     const groups = []; const params = [];
     idxList.forEach((ri) => {
@@ -2664,7 +2812,7 @@ async function deleteRows(t, idxList) {
     });
     if (!groups.length) return;
     const sql = 'DELETE FROM ' + t.full + ' WHERE ' + groups.join(' OR ');
-    await api('/api/execute', { connId: qc, sql, params });
+    await api('/api/execute', { connId: qc, sql, params, autoCommit: loadSettings().autoCommit });
     t.selRows = []; t.selRow = -1;
     await loadTableData(t); flash('已删除 ' + groups.length + ' 行', false);
   } catch (e) { flash('批量删除失败：' + e.message, true); }
@@ -3258,6 +3406,10 @@ function renderPlanTree(node) {
   return wrap;
 }
 function paintResultGrid(res, container) {
+  const maxRows = loadSettings().maxRows;
+  const allRows = res.rows || [];
+  const shownRows = allRows.slice(0, maxRows);
+  const truncated = allRows.length > maxRows;
   const sc = document.createElement('div'); sc.className = 'grid-scroll'; sc.style.cssText = 'flex:1;min-height:0;';
   const table = document.createElement('table');
   const thead = document.createElement('thead'); const hr = document.createElement('tr');
@@ -3273,7 +3425,7 @@ function paintResultGrid(res, container) {
   });
   thead.appendChild(hr); table.appendChild(thead);
   const tb = document.createElement('tbody');
-  (res.rows || []).forEach((row, ri) => {
+  shownRows.forEach((row, ri) => {
     const tr = document.createElement('tr');
     const rn = document.createElement('td'); rn.className = 'rownum'; rn.textContent = ri + 1; tr.appendChild(rn);
     res.fields.forEach((f) => {
@@ -3291,6 +3443,13 @@ function paintResultGrid(res, container) {
     tb.appendChild(tr);
   });
   table.appendChild(tb); sc.appendChild(table); container.appendChild(sc);
+  if (truncated) {
+    const note = document.createElement('div');
+    note.className = 'hint';
+    note.style.cssText = 'padding:4px 10px;';
+    note.textContent = '⚠ 结果 ' + allRows.length.toLocaleString() + ' 行超过显示上限，仅显示前 ' + maxRows.toLocaleString() + ' 行（可在「设置 → 常规」中调整）。';
+    container.appendChild(note);
+  }
 }
 function swapResultCol(table, from, to) {
   const swapRow = (tr) => {
@@ -4292,77 +4451,53 @@ $('btnFind').onclick = () => { const t = state.tabs.find((x) => x.id === state.a
 // 顶部工具栏「脱敏」：切换 PII 列显示掩码 / 原始值
 $('btnPii').onclick = () => {
   const on = togglePiiMask();
-  $('btnPii').classList.toggle('primary', !on);
-  flash(on ? 'PII 脱敏已开启（敏感列显示掩码）' : 'PII 脱敏已关闭（显示原始值）', !on);
+  $('btnPii').classList.toggle('primary', on);
+  flash(on ? 'PII 脱敏已开启（敏感列显示掩码）' : 'PII 脱敏已关闭（显示原始值）', false);
 };
-$('btnPii').classList.toggle('primary', !piiMasked());
+// 初始态：脱敏开启=按钮高亮(选中)，未脱敏=不选中（与默认不脱敏一致）
+$('btnPii').classList.toggle('primary', piiMasked());
 $('btnRefreshTree').onclick = () => { const c = getConn(state.activeConnId); if (c) loadMeta(c).then(() => { renderTree(); renderObjNav(); }); };
 $('treeFilter').oninput = (e) => { state.treeFilter = e.target.value; applyTreeFilter(); };
 $('tTheme').onclick = () => { state.theme = state.theme === 'light' ? 'dark' : 'light'; document.documentElement.dataset.theme = state.theme; };
-// 设置按钮已移除(设置面板逻辑保留,将来 Web 服务功能恢复时复用)
+// 顶部工具栏「设置」：打开客户端设置面板（常规设置 + Web 服务）
+$('tSettings').onclick = () => openSettingsModal();
 
-// ---------- 设置弹窗：Web 服务开关 / 端口 / 监听地址 ----------
+// 应用本地常规设置（主题等）到初始界面
+applySettings();
+
+// 补丁更新 UI 初始化（检查更新按钮 / 更新面板）
+initUpdateUI();
+
+// ---------- 设置弹窗：常规设置（本地 localStorage） ----------
 async function openSettingsModal() {
   const m = $('settingsModal');
-  $('sErr').textContent = '';
-  // 桌面 IPC 模式(零端口)：Web 开关无效，提示使用独立 Web 版
-  if (window.dbAdminBridge) {
-    $('sErr').textContent = '当前为桌面模式（零 HTTP 端口），Web 访问开关仅对 Web 版生效；局域网访问请使用独立 Web 版部署。';
-    $('sErr').style.color = 'var(--muted)';
-  }
-  // 读取当前配置
-  try {
-    const r = await api('/api/settings', {});
-    const w = r.web || {};
-    $('sWebEnabled').checked = !!w.enabled;
-    $('sHost').value = w.host || '0.0.0.0';
-    $('sPort').value = w.port || '5180';
-  } catch (e) {
-    $('sErr').textContent = '读取配置失败：' + e.message;
-  }
-  updateSettingsWebHint();
+  // 读取本地常规设置并回填
+  const gs = loadSettings();
+  $('sPii').checked = !!gs.piiMaskDefault;
+  $('sTheme').value = gs.theme === 'dark' ? 'dark' : 'light';
+  $('sPageSize').value = gs.pageSize;
+  $('sMaxRows').value = gs.maxRows;
+  $('sConfirmDel').checked = !!gs.confirmDelete;
+  $('sAutoCommit').checked = !!gs.autoCommit;
   m.classList.add('show');
 }
-function updateSettingsWebHint() {
-  const on = $('sWebEnabled').checked;
-  const host = $('sHost').value.trim() || '0.0.0.0';
-  const port = $('sPort').value.trim() || '5180';
-  $('sWebFields').style.opacity = on ? '1' : '.45';
-  $('sWebUrl').textContent = on
-    ? ('Web 访问地址：http://' + (host === '0.0.0.0' ? '本机IP' : host) + ':' + port + '/（局域网设备用 本机IP 访问）')
-    : 'Web 服务关闭：仅桌面窗口可用，不对外暴露端口';
-}
-$('sWebEnabled').onchange = updateSettingsWebHint;
-$('sHost').oninput = updateSettingsWebHint;
-$('sPort').oninput = updateSettingsWebHint;
 $('sCancel').onclick = () => { $('settingsModal').classList.remove('show'); };
 $('settingsModal').addEventListener('click', (e) => { if (e.target === $('settingsModal')) $('settingsModal').classList.remove('show'); });
-$('sSave').onclick = async () => {
-  const cfg = {
-    web: {
-      enabled: $('sWebEnabled').checked,
-      host: $('sHost').value.trim() || '0.0.0.0',
-      port: parseInt($('sPort').value, 10) || 5180,
-    },
-  };
-  const btn = $('sSave');
-  btn.disabled = true; btn.textContent = '保存中…';
-  try {
-    const r = await api('/api/settings', cfg);
-    if (!r.ok) throw new Error(r.error || '保存失败');
-    $('settingsModal').classList.remove('show');
-    flash('设置已生效' + (r.web && r.web.enabled ? '，Web 地址 http://' + (r.host || '0.0.0.0') + ':' + (r.port || 5180) + '/' : '，Web 服务已关闭'), false);
-    // 热重启后端口可能变化：1.2 秒后自动跳到新地址（桌面窗口跟随）
-    setTimeout(() => {
-      const cur = parseInt((location.port || '80'), 10);
-      const np = r.port || 5180;
-      if (location.protocol === 'http:' && r.host && r.host !== '0.0.0.0' && cur !== np) location.href = location.protocol + '//' + location.hostname + ':' + np + '/';
-      else if (location.protocol === 'http:' && cur !== np) location.href = location.protocol + '//127.0.0.1:' + np + '/';
-    }, 1200);
-  } catch (e) {
-    $('sErr').textContent = '保存失败：' + e.message;
-    btn.disabled = false; btn.textContent = '保存并生效';
-  }
+$('sSave').onclick = () => {
+  // 常规设置均为本地（localStorage），保存并即时生效
+  const gs = loadSettings();
+  gs.piiMaskDefault = $('sPii').checked;
+  gs.theme = $('sTheme').value === 'dark' ? 'dark' : 'light';
+  gs.pageSize = Math.min(5000, Math.max(10, parseInt($('sPageSize').value, 10) || 200));
+  gs.maxRows = Math.min(100000, Math.max(10, parseInt($('sMaxRows').value, 10) || 1000));
+  gs.confirmDelete = $('sConfirmDel').checked;
+  gs.autoCommit = $('sAutoCommit').checked;
+  saveSettings(gs);
+  state.theme = gs.theme; document.documentElement.dataset.theme = gs.theme;
+  $('btnPii').classList.toggle('primary', piiMasked());
+  refreshAllDataTabs();
+  $('settingsModal').classList.remove('show');
+  flash('设置已生效（常规）；每页 / 上限将在下次打开或查询时生效', false);
 };
 document.querySelectorAll('.menubar .mi').forEach((m) => m.onclick = (ev) => {
   ev.stopPropagation();

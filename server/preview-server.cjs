@@ -26,9 +26,17 @@ const os = require('os');
 const { PgWire } = require('./src/connection/dialects/pgwire.js');
 const { SqliteDriver } = require('./src/connection/dialects/sqlite-driver.cjs');
 const UI = require('../web/src/lib/ui-interactions.js');
+// 补丁更新核心工具（overlay 解析 / manifest / 增量应用）
+const UpdateUtils = require('./src/update/update-utils.cjs');
 
 // MySQL 协议族驱动（mysql/mariadb/tidb/oceanbase 共用）。
 // mysql2 非内置，联网 `npm install mysql2` 后自动启用；未安装时 doConnect 给出明确提示。
+// MySQL 驱动解析：overlay 不携带 node_modules，统一从安装基准 app 目录解析（mysql2 由安装包自带）
+const __reqMysql = (function () {
+  try { return require('module').createRequire(path.join(UpdateUtils.getBaseAppDir(), '_noop.js')); }
+  catch (_) { return function () { throw new Error('createRequire 不可用'); }; }
+})();
+
 class MySqlDriver {
   constructor(mysql2, opts) { this._m = mysql2; this.opts = opts; this.type = 'mysql'; this.database = opts.database || ''; }
   // 兼容统一关闭接口（其他驱动用 end()）
@@ -134,9 +142,9 @@ async function doConnect(cfg) {
     } catch (e) { throw e; }
   }
   if (family === 'mysql') {
-    // MySQL 协议族：有 mysql2 则用（联网机器 npm install 后可用）；否则给出明确提示
+    // MySQL 协议族：有 mysql2 则用（安装包自带，统一从基准 node_modules 解析）；否则给出明确提示
     let mysql2;
-    try { mysql2 = require('mysql2/promise'); }
+    try { mysql2 = __reqMysql('mysql2/promise'); }
     catch (_) { throw new Error('MySQL 协议族（MySQL/MariaDB/TiDB/OceanBase）需要 mysql2 驱动。请先执行: cd server && npm install mysql2'); }
     const c = new MySqlDriver(mysql2, {
       host: cfg.host || '127.0.0.1',
@@ -1324,6 +1332,7 @@ async function handleApi(p, data) {
     }
     if (p === '/api/connect') return { status: 200, data: await doConnect(data) };
     if (p === '/api/audit') return { status: 200, data: doAudit() };
+    if (p === '/api/patch') return await handlePatch(data.action, data);
     const conn = CONNS.get(data.connId);
     if (!conn) return { status: 404, data: { error: '连接不存在或已断开，请重新连接' } };
     if (p === '/api/connect-db') return { status: 200, data: await doConnectDb(conn, data.db) };
@@ -1373,17 +1382,94 @@ async function handleApi(p, data) {
   }
 }
 
-// 初始启动：优先用配置（桌面模式 LISTEN_HOST=127.0.0.1 且 web 默认关；配置开启则按配置）
+// ---------- 补丁更新（增量热更新，无需重装安装包 / 不写 Program Files） ----------
+// action:
+//   check  → 对比本地 manifest 与远程 manifest，返回版本差异与变更文件清单
+//   apply  → 按远程 manifest 下载变更文件到 overlay 覆盖层，写 overlay manifest
+//   restart→ 仅标记（桌面端由主进程 relaunch 执行真正重启）
+async function handlePatch(action, data) {
+  data = data || {};
+  const patchUrl = process.env.DB_NEST_PATCH_URL || (data.patchUrl || '').trim();
+  if (action === 'check') {
+    const localDir = UpdateUtils.resolveAppDir();
+    const localManifest = UpdateUtils.readManifest(localDir) || UpdateUtils.computeManifest(localDir);
+    let remote = null, remoteError = null;
+    if (patchUrl) {
+      try { remote = await UpdateUtils.fetchJson(patchUrl.replace(/\/$/, '') + '/manifest.json', 15000); }
+      catch (e) { remoteError = String(e.message || e); }
+    }
+    const changes = [];
+    if (remote) {
+      const localFiles = localManifest.files || {};
+      const remoteFiles = remote.files || {};
+      for (const rel of Object.keys(remoteFiles)) {
+        const lf = localFiles[rel];
+        if (!lf || lf.sha256 !== remoteFiles[rel].sha256) changes.push({ path: rel, size: remoteFiles[rel].size, kind: lf ? 'update' : 'add' });
+      }
+      (remote.remove || []).forEach((rel) => { if (localFiles[rel]) changes.push({ path: rel, size: 0, kind: 'remove' }); });
+    }
+    const needUpdate = !!(remote && remote.version && remote.version !== localManifest.version && changes.length);
+    return {
+      status: 200,
+      data: {
+        localVersion: localManifest.version,
+        remoteVersion: remote ? remote.version : null,
+        patchUrl: patchUrl || null,
+        needUpdate,
+        changes,
+        remoteError,
+      },
+    };
+  }
+  if (action === 'apply') {
+    if (!patchUrl) return { status: 400, data: { error: '未配置补丁源（请设置 DB_NEST_PATCH_URL 或在设置中填写）' } };
+    let remote;
+    try { remote = await UpdateUtils.fetchJson(patchUrl.replace(/\/$/, '') + '/manifest.json', 15000); }
+    catch (e) { return { status: 502, data: { error: '拉取补丁清单失败: ' + (e.message || e) } }; }
+    const overlay = UpdateUtils.getOverlayDir();
+    // 防止误操作覆盖整个安装目录：overlay 必须在用户可写目录内
+    if (!/DBNest[\\/]app-overlay/i.test(overlay)) {
+      return { status: 500, data: { error: 'overlay 路径非法，已中止以保证安全' } };
+    }
+    fs.mkdirSync(overlay, { recursive: true });
+    let done = 0, bytes = 0;
+    try {
+      for (const rel of Object.keys(remote.files || {})) {
+        bytes += await UpdateUtils.applyRemoteFile(patchUrl, rel, remote.files[rel].sha256, overlay);
+        done++;
+      }
+      (remote.remove || []).forEach((rel) => { try { fs.unlinkSync(path.join(overlay, rel)); } catch (_) {} });
+      // overlay 写入成功后，标记版本（下次启动 resolveAppDir 将优先使用 overlay）
+      UpdateUtils.writeManifest(overlay, {
+        version: remote.version,
+        generatedAt: remote.generatedAt,
+        files: remote.files,
+        remove: remote.remove || [],
+        baseVersion: (UpdateUtils.readManifest(UpdateUtils.getBaseAppDir()) || {}).version,
+      });
+    } catch (e) {
+      return { status: 500, data: { error: '补丁应用失败: ' + (e.message || e) + '（已部分写入，重新应用可续传）' } };
+    }
+    return { status: 200, data: { ok: true, version: remote.version, files: done, bytes } };
+  }
+  if (action === 'restart') {
+    return { status: 200, data: { ok: true, via: process.env.DB_NEST_IPC_ONLY ? 'ipc' : 'manual' } };
+  }
+  return { status: 404, data: { error: 'unknown patch action: ' + action } };
+}
+
+// 初始启动：Web 部署默认监听 0.0.0.0（局域网可直接访问）；LISTEN_HOST 可覆盖为 127.0.0.1（仅本机）；桌面 IPC 模式不启动 HTTP
 httpServer = http.createServer(handleRequest);
 // 桌面 IPC 模式（DB_NEST_IPC_ONLY=1）：不启动 HTTP server，纯 IPC 通道（由 Electron 主进程注册 ipcMain）
 if (!process.env.DB_NEST_IPC_ONLY) {
-  const initHost = process.env.LISTEN_HOST || (loadWebSettings().enabled ? currentWeb.host : '127.0.0.1');
+  // Web 部署默认监听所有网卡(0.0.0.0)，局域网可直接访问；如需仅本机访问，设环境变量 LISTEN_HOST=127.0.0.1
+  const initHost = process.env.LISTEN_HOST || '0.0.0.0';
   // 桌面端已由主进程 findPort 选定可用端口（PREVIEW_PORT）；纯 Node 模式用配置端口或默认 5180
   const initPort = parseInt(process.env.PREVIEW_PORT, 10) || (currentWeb.enabled ? currentWeb.port : 5180);
   currentHttpPort = initPort;
   httpServer.listen(initPort, initHost, () => {
-    console.log('DBNest · 库巢 服务器已启动 → http://localhost:' + initPort + '/');
-    console.log('（Ctrl+C 退出；连接本地 PostgreSQL 需 pg_hba 允许 127.0.0.1 的 scram-sha-256）');
+    console.log('DBNest · 库巢 服务器已启动 → http://localhost:' + initPort + '/  （局域网访问：http://<本机IP>:' + initPort + '/）');
+    console.log('（Ctrl+C 退出；连接本地 PostgreSQL 需 pg_hba 允许 127.0.0.1 的 scram-sha-256；当前已监听 0.0.0.0，同网段设备可直接访问）');
   });
 }
 

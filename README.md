@@ -26,11 +26,11 @@
 ### 📊 数据网格
 - 内联编辑(Enter/Esc/Tab 跳格)、脏标记、批量提交
 - **多条件筛选构建器**(字段 + 运算符 + 值，AND/OR 逻辑)、distinct 值快捷选择、已应用筛选 chips
-- 排序三态、分页(1000 行保护 + 加载更多)、外键跳转
+- 排序三态、分页(每页行数可在设置调整，默认 200 + 加载更多)、外键跳转
 - **撤销 Ctrl+Z / 重做 Ctrl+Y**
 - 多选行 + 批量删除、全选、新增行自动滚底
 - 列宽拖拽、列拖拽调序、网格 Ctrl+F 查找高亮
-- 大文本/二进制查看、NULL 快捷设置、PII 脱敏展示
+- 大文本/二进制查看、NULL 快捷设置、PII 脱敏展示(默认显示原始值，可在工具栏/设置开启)
 
 ### 📝 SQL 编辑器
 - CodeMirror 5 本地化(零 CDN，离线可用)，语法高亮 + 行号
@@ -69,6 +69,16 @@
 - 断线自动重连、加载进度条、空状态引导
 - 自定义弹窗(新建库/模式/导出格式/筛选构建器等)
 
+### ⚙ 客户端设置
+点击右上角 **⚙ 设置** 打开设置面板，仅含「常规」分区（全部本地 `localStorage` 记忆，无需服务端）：
+- **敏感数据默认脱敏**：默认关闭（显示原始值）。开启后手机/证件/邮箱/姓名/卡号等敏感列显示掩码；工具栏「脱敏」按钮高亮 = 脱敏开启。
+- **默认主题**：浅色 / 深色，保存即切换。
+- **每页加载行数**：数据网格分页大小（默认 200，作用于新打开的表）。
+- **查询结果最大行数**：结果集渲染上限（默认 1000，超出仅前端截断并提示）。
+- **删除前确认**：关闭后删除行 / 表不再弹确认框。
+- **自动提交事务**：关闭后需手动提交（后续版本强化）。
+> 注：原「Web 访问服务」设置已移除 —— Web 部署默认即监听 `0.0.0.0`（局域网可达），无需在界面配置；如需仅本机访问用 `LISTEN_HOST=127.0.0.1`。
+
 ---
 
 ## 🏗 架构(桌面零端口 + Web 双形态)
@@ -81,7 +91,7 @@
 └─────────────────────────────────────────────┘
 ┌─ Web 版(Node, 独立部署)─────────────────────┐
 │ server/preview-server.cjs(HTTP + 静态资源)   │
-│ LISTEN_HOST=0.0.0.0 局域网可访问             │
+│ LISTEN_HOST 默认 0.0.0.0(局域网可访问)，设 127.0.0.1 仅本机 │
 └─────────────────────────────────────────────┘
         └── 共用：server 动作层 handleApi(26 API)
 ```
@@ -96,16 +106,23 @@
 ## 🚀 快速开始
 
 ### 方式一：桌面安装包(推荐)
-下载 `DBNest-Setup-1.0.0.exe` → 双击安装 → 桌面快捷方式启动。
+下载 `DBNest-Setup-1.0.1.exe` → 双击安装 → 桌面快捷方式启动。
 - 零 HTTP 端口、断网可用、配置存 `%APPDATA%\db-admin\db-admin.json`
+
+#### 🔧 增量补丁更新（免重装、免管理员）
+真正随版本变化的只有业务资源（`server/` + `web/`，约 3~8MB），Electron 运行时（~200MB）几乎不变。因此更新无需重新下载安装包：
+- 点击右上角 **🔄 检查更新** → 填写补丁源地址（远程 `manifest.json` 目录 URL，如 `https://your-cdn/dbnest-patch/`）→ 检查 → 仅下载变化文件 → 自动重启生效。
+- 补丁文件写入用户可写目录 **`%APPDATA%\DBNest\app-overlay\`**，不覆盖安装目录、不需要管理员权限。
+- 生成补丁包：`node build-patch.cjs --version 1.0.2` → 输出到 `dbnest-patch-out/`（`manifest.json` + `files/`），挂为静态服务即可。
+- 详见 [doc/补丁更新机制-技术方案.md](doc/补丁更新机制-技术方案.md)。
 
 ### 方式二：Web 版(局域网/服务器部署)
 ```bash
 cd dbnest-web-dist
 npm install          # 首次(安装 mysql2)
-npm start            # http://localhost:5180/
-# 局域网访问:
-LISTEN_HOST=0.0.0.0 node server/preview-server.cjs
+npm start            # http://localhost:5180/ （默认监听 0.0.0.0，局域网可直接访问）
+# 如需仅本机访问(关闭局域网):
+LISTEN_HOST=127.0.0.1 node server/preview-server.cjs
 ```
 
 ### 方式三：源码运行(开发)
@@ -132,13 +149,14 @@ bash run-preview.sh   # 或 run-preview.bat → http://localhost:5180/
 
 ```
 ├── server/                  # 服务端
-│   ├── preview-server.cjs   # HTTP 服务器 + handleApi 统一动作层(26 API)
-│   └── src/                 # PG/SQLite 协议驱动、连接预设、保险库
+│   ├── preview-server.cjs   # HTTP 服务器 + handleApi/handlePatch 统一动作层
+│   └── src/update/          # 补丁更新核心(overlay 解析 / manifest / 增量应用)
 ├── web/
 │   ├── preview/             # 前端单页(index.html + vendor/codemirror)
 │   └── src/lib/             # 前后端共用逻辑(db-logic / ui-interactions)
 ├── doc/                     # 分析文档(进度矩阵/技术方案/比对清单)
 ├── build-web-dist.cjs       # Web 版独立打包脚本
+├── build-patch.cjs          # 增量补丁生成器(manifest + files)
 ├── push-to-github.bat       # 一键推送 GitHub(本地执行)
 └── run-preview.sh / .bat    # 一键启动 Web 预览
 ```
@@ -151,6 +169,7 @@ bash run-preview.sh   # 或 run-preview.bat → http://localhost:5180/
 |---|---|
 | [doc/对标Navicat-进度矩阵.md](doc/对标Navicat-进度矩阵.md) | 141 项功能对标进度、完成度、剩余 P1/P2 |
 | [doc/桌面Web分离打包-技术方案.md](doc/桌面Web分离打包-技术方案.md) | 零端口 IPC 架构改造方案与实施记录 |
+| [doc/补丁更新机制-技术方案.md](doc/补丁更新机制-技术方案.md) | 增量补丁更新（overlay 覆盖层 + manifest 增量 + 免重装免管理员） |
 | [doc/数据库管理应用-技术方案.md](doc/数据库管理应用-技术方案.md) | 整体技术选型与设计 |
 | [doc/Navicat比对清单-细化.md](doc/Navicat比对清单-细化.md) | 功能比对细化清单 |
 | [doc/Navicat操作-易用-UI交互-细化对比.md](doc/Navicat操作-易用-UI交互-细化对比.md) | 操作/易用/UI 交互对比 |
